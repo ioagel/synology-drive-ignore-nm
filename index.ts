@@ -29,7 +29,7 @@ const args = process.argv.slice(2)
 const ignoreArg = args.find(arg => arg.startsWith('--ignore='))
 const banDirNames = ['node_modules', ...(ignoreArg?.split('=')[1].split(',') ?? [])]
 
-const directory = `${os.homedir()}/Library/Application Support/SynologyDrive/SynologyDrive.app/Contents/Resources/conf`
+const directory = `${os.homedir()}/.SynologyDrive/SynologyDrive.app/conf`
 const paths = {
     blacklist: `${directory}/blacklist.filter`,
     filterV450: `${directory}/filter-v4150`
