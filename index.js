@@ -1,30 +1,8 @@
-// @ts-ignore
+// @ts-nocheck
 import ini from '@loice5/dangerous-ini'
-import type { BunFile } from 'bun'
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-
-interface SynologyFilter {
-    Version: {
-      major: string
-      minor: string
-    }
-    Common?: {
-      black_char: string
-      black_name: string
-      max_length: string
-      max_path: string
-    }
-    File?: {
-      black_name: string
-      black_prefix: string
-      max_size: string
-    }
-    Directory?: {
-      black_name: string
-    }
-    EA?: {}
-}
 
 const args = process.argv.slice(2)
 const ignoreArg = args.find(arg => arg.startsWith('--ignore='))
@@ -32,7 +10,7 @@ const dirArg = args.find(arg => arg.startsWith('--dir=') || arg.startsWith('--di
 const banDirNames = ['node_modules', ...(ignoreArg?.split('=')[1].split(',') ?? [])]
 
 // Helper function to expand ~ to home directory
-const expandTilde = (filePath: string): string => {
+const expandTilde = (filePath) => {
     if (filePath.startsWith('~/')) {
         return path.join(os.homedir(), filePath.slice(2))
     }
@@ -43,7 +21,7 @@ const expandTilde = (filePath: string): string => {
 }
 
 // Get directory from command line arg, environment variable, or fallback to default
-const getConfigDirectory = (): string => {
+const getConfigDirectory = () => {
     // Priority: command line arg > environment variable > default
     if (dirArg) {
         const dir = dirArg.split('=')[1]
@@ -79,24 +57,29 @@ async function main() {
     await editConfigFile(paths.filterV450)
 }
 
-async function editConfigFile(path: string): Promise<void> {
+async function editConfigFile(filePath) {
 
-    console.info(`Editing file : ${path}`)
+    console.info(`Editing file : ${filePath}`)
 
-    // Open the file
-    const file: BunFile = Bun.file(path)
-    const text: string = await file.text()
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+        console.error(`Error: File does not exist: ${filePath}`)
+        process.exit(1)
+    }
 
-    await backupFile(file)
+    // Read the file
+    const text = fs.readFileSync(filePath, 'utf8')
+
+    await backupFile(filePath)
 
     // Get the file as an object
-    const config = Object.assign({}, ini.parse(text)) as SynologyFilter
+    const config = Object.assign({}, ini.parse(text))
 
     // Create some conditions for better code lisibility
-    const hasDirectoryKey: boolean = config.hasOwnProperty('Directory')
-    const hasCommonKey: boolean = config.hasOwnProperty('Common')
-    const hasNodeModulesInDirectory: boolean = hasDirectoryKey && banDirNames.every(dir => config.Directory!.black_name.includes(dir))
-    const hasNodeModulesInCommon: boolean = hasCommonKey && banDirNames.every(dir => config.Common!.black_name.includes(dir))
+    const hasDirectoryKey = config.hasOwnProperty('Directory')
+    const hasCommonKey = config.hasOwnProperty('Common')
+    const hasNodeModulesInDirectory = hasDirectoryKey && banDirNames.every(dir => config.Directory.black_name.includes(dir))
+    const hasNodeModulesInCommon = hasCommonKey && banDirNames.every(dir => config.Common.black_name.includes(dir))
 
     if (
         (hasNodeModulesInDirectory && !hasCommonKey) ||
@@ -111,8 +94,8 @@ async function editConfigFile(path: string): Promise<void> {
         }
     else {
         banDirNames.forEach(dir => {
-            if (!config.Directory!.black_name.includes(dir)) {
-                config.Directory!.black_name += `, "${dir}"`
+            if (!config.Directory.black_name.includes(dir)) {
+                config.Directory.black_name += `, "${dir}"`
             }
         })
     }
@@ -120,34 +103,29 @@ async function editConfigFile(path: string): Promise<void> {
     // If the Common key exists in the file, we add directories in the blacklist
     if (hasCommonKey) {
         banDirNames.forEach(dir => {
-            if (!config.Common!.black_name.includes(dir)) {
-                config.Common!.black_name += `, "${dir}"`
+            if (!config.Common.black_name.includes(dir)) {
+                config.Common.black_name += `, "${dir}"`
             }
         })
     }
 
     // We save the file
     const updatedConfig = ini.stringify(config)
-    try {
-        await Bun.write(path, updatedConfig)
-    } catch (error: unknown) {
-        const fs = await import('fs')
-        fs.writeFileSync(path, updatedConfig)
-        console.info(`🧐 For some reason, Bun.write() fails on your device. We've switched it to fs.writeFileSync() for you! If you see this, the edits have succeeded.`)
-    }
+    fs.writeFileSync(filePath, updatedConfig, 'utf8')
 
     console.info(`${banDirNames.join(', ')} have been successfully banned from Synology Drive.`)
 }
 
-async function backupFile(file: BunFile): Promise<void> {
-    const fileName = file.name?.split('/').at(-1)
-    const path = `${os.homedir()}/Desktop/${fileName}`
+async function backupFile(filePath) {
+    const fileName = path.basename(filePath)
+    const backupPath = path.join(os.homedir(), 'Desktop', fileName)
 
-    await Bun.write(path, file)
+    // Copy the file to backup location
+    fs.copyFileSync(filePath, backupPath)
     
     console.info('File backed-up successfully.')
 }
 
 main()
     .then(() => console.info('Operation completed successfully.'))
-    .catch(err => console.error('An error occurred:', err))
+    .catch(err => console.error('An error occurred:', err)) 
